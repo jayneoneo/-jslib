@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+<style>
+    html,body{
+        width: 100%;
+        height: 100%;
+    }
+    *{
+        margin: 0;
+        padding: 0;
+    }
+    #slideshow{
+        margin-top: 20px;
+        position: relative;
+        width: 100%;
+        height: 200px;
+        overflow: hidden;
+    }
+    #imgbox{
+        position: relative;
+        width: 100%;
+        height: 100%;
+        transform-style: preserve-3d;
+        -webkit-transform-style: preserve-3d;
+        -moz-transform-style: preserve-3d;
+    }
+    #imgbox > div{
+        position: relative;
+        width: 100%;
+        height: 100%;
+        float: left;
+        text-align: center;
+        background-color: #636363;
+        font-size: 16px;
+        /*解決ios動畫會閃爍*/
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        -moz-backface-visibility: hidden;
+    }
+</style>
+<body>
+    <div id="slideshow">
+        <div id="imgbox">
+            <div>a1</div>
+            <div>a2</div>
+            <div>a3</div>
+            <div>a4</div>
+            <div>a5</div>
+            <div>a1</div>
+        </div>
+    </div>
+
+    <script>
+        (function(){
+            if("undefined" == typeof(window.requestAnimationFrame)) window.requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame || window.msRequestAnimationFrame ;
+            if("undefined" == typeof(window.cancelAnimationFrame)) window.cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame;
+            
+            var root = this;
+            //輪播
+            var slideshow = function(){
+                this.config = new Object();
+                this.config.logLevel = 3;//1才要記錄
+                this.idObj = null;
+                this.divObj = null;
+                this.imglen = 0;//有多少個圖片
+                this.touchEventFlag = false;//是否已經註冊touch事件
+                this.resizeEventFlag = false;//是否已經註冊reisze事件
+                this.androidUserAgentRegex = new RegExp("Android","i");//判斷是否為手機browser正規劃表示式 android
+                this.iponeUserAgentRegex = new RegExp("iPad|iPod|iPhone","i");//判斷是否為手機browser正規劃表示式 ipone
+                this.isIphone = (navigator.userAgent.match(this.iponeUserAgentRegex))?true:false;//是否為ipone
+                this.isAndroid = (navigator.userAgent.match(this.androidUserAgentRegex))?true:false;//是否為android
+                this.isPhone = (this.isIphone ||this.isAndroid) ? true : false;
+                this.imgIndex = 0;//起始照片排序
+                this.imgMovePx = 0;//圖片預設要移動多少px
+                this.moveX = 0;//起始按下 x軸位置
+                this.directionX = "left";//左邊滑動 還是右邊滑動
+                this.sumX = 0;//計算手指移動了多少位置x軸
+                this.maxMoveX = 30; //只要移動100px就直接換下一張圖
+                this.slideshowObj = document.getElementById("slideshow");//最外層id
+                this.autoRunID = null;//紀錄當下 requestAnimationFrame ID 或者 setTimeout參數
+                this.autoRunStopFlag = false;//紀錄是否停止輪播 touch事件觸發時,需要給true
+            }
+            //初始設定值
+            slideshow.prototype.init = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("init");
+                roots.config.idname = "imgbox";
+                roots.config.autoRunFlag = true;//是否自動輪播
+                roots.config.transitionTime = 600;//動畫時間 毫秒 ms
+                roots.config.autoRunTime = 1000;//多久輪播一次,1000一秒
+                roots.config.width = parseInt(roots.slideshowObj.offsetWidth);//取得輪播區域的寬度
+                roots.idObj = null;
+            }
+            //設定style屬性
+            slideshow.prototype.setCss = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("setCss");
+                if(!roots.idObj) return;
+                var f = function(){
+                    roots.idObj.style.width = roots.imglen * roots.config.width + "px";
+                    for(var i=0;i<roots.imglen;i++){
+                        var item = roots.divObj.item(i);
+                        if(!item) continue;
+                        item.style.width = roots.config.width + "px";
+                    }
+                }
+                if("function" == typeof(window.requestAnimationFrame)){
+                    requestAnimationFrame(f);
+                }else{
+                    f();
+                }
+            }
+            //開始自動輪播
+            slideshow.prototype.autoRun = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("autoRun");
+                if(false == roots.config.autoRunFlag) return;
+                roots.autoRunStopFlag = false;
+                roots.autoRunCon();
+            }
+            //停止自動輪播
+            slideshow.prototype.autoRunStop = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("autoRunStop");
+                if(false == roots.config.autoRunFlag) return;
+                roots.autoRunStopFlag = true;
+                roots.autoRunStartTime = null; //起始時間設定null
+                if(!roots.autoRunID) return;
+                clearTimeout(roots.autoRunID);
+                roots.autoRunID = null;
+            }
+            //自動輪播圖片移動內容
+            slideshow.prototype.autoRunCon = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("autoRunCon");
+                if(false == roots.config.autoRunFlag) return;
+                if(roots.autoRunStopFlag) return;
+                var moveX = 0;
+
+                roots.cssTransitionDuration(0);
+                if(0 == roots.imgIndex && "right" == roots.directionX){
+                    roots.imgIndex = roots.imglen - 1;
+                    moveX = (roots.imglen -1) * roots.config.width * -1;
+                    roots.cssTransform(moveX,0,0);
+                    roots.autoRunID = setTimeout(function(){ roots.autoRunCon(); },60);
+                    return;
+                }
+                if(roots.imgIndex == (roots.imglen -1) && "left" == roots.directionX){
+                    roots.imgIndex = 0;
+                    roots.cssTransform(0,0,0);
+                    roots.autoRunID = setTimeout(function(){ roots.autoRunCon(); },60);
+                    return;
+                }
+                
+                if("left" == roots.directionX) roots.imgIndex = roots.imgIndex + 1;
+                //因為是第一張圖片
+                if("right" == roots.directionX) roots.imgIndex = (0 == roots.imgIndex) ? roots.imglen - 2 : roots.imgIndex - 1;
+
+                moveX = roots.imgIndex * roots.config.width * -1;
+                roots.cssTransitionDuration(roots.config.transitionTime);
+                roots.cssTransform(moveX,0,0);
+                roots.autoRunID = setTimeout(function(){ roots.autoRun(); },roots.config.autoRunTime);
+            }
+            //輪播開始
+            slideshow.prototype.start = function(config){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("start",config);
+                if(!roots.slideshowObj) return;
+                if(roots.touchEventFlag) roots.reTouchEvent();//移除touch事件
+                roots.init();//初始化
+                if("object" == typeof(config)){
+                    for(var key in config){
+                        if("undefined" == typeof(roots.config[key])) continue;
+                        roots.config[key] = config[key];
+                    }
+                }
+                if(document.getElementById(roots.config.idname)) roots.idObj = document.getElementById(roots.config.idname);
+                roots.divObj = roots.idObj.getElementsByTagName("div");
+                if(!roots.divObj) return;
+                roots.imglen = parseInt(roots.divObj.length);
+                if(roots.imglen > 2){
+                    //設定css
+                    roots.setCss();
+                    if(roots.isPhone) roots.addTouchEvent();//新增touch事件
+                    roots.autoRunID = setTimeout(function(){
+                        roots.autoRun();//自動輪播
+                    },roots.config.autoRunTime);
+                }
+                if(false == roots.resizeEventFlag) roots.resizeEvent();
+            }
+            
+            /**************************圖片移動動作*******************************/
+            
+            //css動畫設定
+            slideshow.prototype.cssTransform = function(x,y,z){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("cssTransform");
+                if(roots.isIphone){
+                    roots.idObj.style.webkitTransform = "translate3d("+x+"px, "+y+"px, "+z+"px)";
+                }else{
+                    roots.idObj.style.transform = "translate3d("+x+"px, "+y+"px, "+z+"px)";
+                }
+            }
+            //css動畫秒數設定 webkitTransitionDuration
+            slideshow.prototype.cssTransitionDuration = function(sec){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("cssTransitionDuration");
+                if(roots.isIphone){
+                    roots.idObj.style.webkitTransitionDuration = sec + "ms";
+                }else{
+                    roots.idObj.style.transitionDuration = sec + "ms";
+                }
+            }
+            //動畫組合
+            slideshow.prototype.cssTransformRun = function(x,y,z,sec){
+                var roots = this;
+                var f = function(){
+                    roots.cssTransitionDuration(sec);
+                    roots.cssTransform(x,y,z);
+                }
+                if("function" == typeof(requestAnimationFrame)){
+                    requestAnimationFrame(f);
+                }else{
+                    f();
+                }
+            }
+            //正在向左邊移動
+            slideshow.prototype.leftMoveIng = function(moveX){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("leftMoveIng");
+                roots.directionX = "left";
+                var sumX = 0;
+                roots.sumX = roots.moveX - moveX;
+                sumX = -(roots.imgMovePx + roots.sumX);
+                roots.cssTransformRun(sumX,0,0,0);
+            }
+            //正在向右邊移動
+            slideshow.prototype.rightMoveIng = function(moveX){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("rightMoveIng");
+                roots.directionX = "right";
+                var lastX = 0;
+                //第一張時
+                if(0 == roots.imgIndex) lastX = (roots.imglen - 1) * roots.config.width * -1;
+                var sumX = 0;
+                roots.sumX = moveX - roots.moveX;
+                sumX = lastX - roots.imgMovePx + roots.sumX;
+                roots.cssTransformRun(sumX,0,0,0);
+            }
+            //移動結束
+            slideshow.prototype.moveIngFinish = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("moveIngFinish");
+                var moveX = 0;
+                var backflag = false;//是否需要還原
+                
+                if(roots.sumX<0) roots.sumX = roots.sumX * -1;
+                if(roots.sumX<roots.maxMoveX) backflag = true;
+
+                if(false == backflag){
+                    if("left" == roots.directionX) roots.imgIndex = roots.imgIndex + 1 ;
+                    if("right" == roots.directionX) roots.imgIndex = (0 == roots.imgIndex) ? roots.imglen - 2 : roots.imgIndex - 1;//因為是第一張圖片
+                    moveX = roots.imgIndex * roots.config.width * -1;
+                    if(roots.config.logLevel ==1) console.log("ok",moveX);
+                }else{
+                    moveX = roots.imgIndex * roots.config.width * -1;
+                    if(roots.config.logLevel ==1) console.log("back",moveX);
+                }
+                
+                roots.cssTransformRun(moveX,0,0,roots.config.transitionTime);
+                roots.autoRunID = setTimeout(function(){ roots.autoRun(); },roots.config.autoRunTime);
+            }
+
+            /**************************監聽事件********************************/
+
+            //點擊開始
+            slideshow.prototype.handleGestureStart = function(e){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("handleGestureStart");
+                roots.autoRunStop();//停止輪播
+                var e = e || event;
+                if("undefined" == typeof(e.touches)) return;
+                roots.moveX = parseInt(e.touches[0].clientX);
+                //當移動到最一張是複製第一張圖片時
+                if(roots.imgIndex == (roots.imglen -1)){
+                    roots.cssTransformRun(0,0,0,roots.config.transitionTime);
+                    roots.imgIndex = 0;
+                }
+                if(roots.imgIndex>0) roots.imgMovePx = roots.imgIndex * roots.config.width;
+            }
+            //點擊移動
+            slideshow.prototype.handleGestureMove = function(e){
+                var roots = this;
+                var e = e || event;
+                if(roots.config.logLevel ==1) console.log("handleGestureMove");
+                if("undefined" == typeof(e.touches)) return;
+                var sumX = 0;
+                var moveX = parseInt(e.touches[0].clientX);
+                if(roots.moveX>=moveX){
+                    roots.leftMoveIng(moveX);
+                }else{
+                    roots.rightMoveIng(moveX);
+                }
+            }
+            //點擊結束
+            slideshow.prototype.handleGestureEnd = function(e){
+                var roots = this;
+                var e = e || event;
+                if(roots.config.logLevel ==1) console.log("handleGestureEnd");
+                roots.moveIngFinish();
+                //初始化
+                roots.sumX = 0;
+                roots.moveX = 0;
+                roots.imgMovePx = 0;
+            }
+            //動畫結束事件
+            slideshow.prototype.transitionEnd = function(e){
+                var roots = this;
+                var e = e || event;
+                if(roots.config.logLevel ==1) console.log("transitionEnd");
+                roots.cssTransitionDuration(0);
+            }
+            //註冊touch事件
+            slideshow.prototype.addTouchEvent =function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("addEvent");
+                if(!roots.idObj) return;
+                roots.idObj.addEventListener("touchstart", roots.handleGestureStart.bind(roots), false);
+                roots.idObj.addEventListener("touchmove", roots.handleGestureMove.bind(roots), false);
+                roots.idObj.addEventListener("touchend", roots.handleGestureEnd.bind(roots), false);
+                roots.idObj.addEventListener("touchcancel", roots.handleGestureEnd.bind(roots), false);
+                roots.idObj.addEventListener("transitionend", roots.transitionEnd.bind(roots), false);
+                roots.idObj.addEventListener("webkitTransitionEnd", roots.transitionEnd.bind(roots), false);   
+                roots.touchEventFlag = true;
+            }
+            //移除touch事件
+            slideshow.prototype.reTouchEvent = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("reEvent");
+                if(!this.idObj) return;
+                roots.idObj.removeEventListener("touchstart", roots.handleGestureStart,false);
+                roots.idObj.removeEventListener("touchmove", roots.handleGestureMove,false);
+                roots.idObj.removeEventListener("touchend", roots.handleGestureEnd,false);
+                roots.idObj.removeEventListener("touchcancel", roots.handleGestureEnd,false);
+                roots.idObj.removeEventListener("transitionend", roots.transitionEnd,false);
+                roots.touchEventFlag = false;
+            }
+            //假如resize,要重新計算寬度
+            slideshow.prototype.resizeEvent = function(){
+                var roots = this;
+                if(roots.config.logLevel ==1) console.log("resizeEvent");
+                var resize = function(){
+                    if(roots.config.logLevel ==1) console.log("resize");
+                    roots.config.width = parseInt(roots.slideshowObj.offsetWidth);
+                    roots.setCss();
+                    var moveX = roots.imgIndex * roots.config.width * -1;
+                    roots.cssTransformRun(moveX,0,0,0);
+                }
+                window.addEventListener("resize",resize,true);
+                this.resizeEventFlag =true;
+            }
+            root.slideshow = new slideshow();//初始化
+        }).call(this);
+
+        slideshow.start();
+    </script>
+</body>
+</html>
